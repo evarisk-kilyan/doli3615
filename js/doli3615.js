@@ -15,6 +15,8 @@
 
 	/* ------------------------------------------------------ audio ----- */
 
+	var MASTER = 3; // volume général, appliqué à tous les sons
+
 	var actx = null;
 
 	function ac() {
@@ -30,6 +32,7 @@
 	function tone(freqs, t0, dur, vol, type) {
 		var c = ac();
 		if (!c) return;
+		vol = Math.min(0.9, vol * MASTER);
 		var g = c.createGain();
 		var start = c.currentTime + t0;
 		g.gain.setValueAtTime(0.0001, start);
@@ -50,6 +53,7 @@
 	function hiss(t0, dur, vol) {
 		var c = ac();
 		if (!c) return;
+		vol = Math.min(0.9, vol * MASTER);
 		var n = Math.floor(c.sampleRate * dur);
 		var buf = c.createBuffer(1, n, c.sampleRate);
 		var d = buf.getChannelData(0);
@@ -102,7 +106,7 @@
 		f.frequency.value = 1800;
 		f.Q.value = 0.8;
 		var g = c.createGain();
-		g.gain.value = 0.07;
+		g.gain.value = Math.min(0.9, 0.07 * MASTER);
 		s.connect(f);
 		f.connect(g);
 		g.connect(c.destination);
