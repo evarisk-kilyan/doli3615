@@ -81,45 +81,72 @@
 	function unlock() {
 		var c = ac();
 		if (c && c.state === 'suspended') c.resume();
+		if (crackleWanted) startCrackle(); // peinture en cours : le crachotis rejoint
 	}
 	document.addEventListener('pointerdown', unlock, true);
 	document.addEventListener('keydown', unlock, true);
 
-	// Crachotis de réception de données pendant la peinture de l'écran
-	var crackle = null;
+	// Crachotis de réception de données pendant la peinture de l'écran.
+	// On passe par un élément <audio> (WAV généré à la volée) plutôt que par
+	// le WebAudio : sa politique d'autoplay est plus permissive au chargement
+	// d'une page. S'il est quand même bloqué, le crachotis démarre au premier
+	// clic / touche (voir unlock).
+
+	function crackleWavUrl() {
+		if (crackleWavUrl.url) return crackleWavUrl.url;
+		var sr = 22050;
+		var n = sr * 2; // 2 s de boucle
+		var pcm = new Int16Array(n);
+		var lp = 0;
+		for (var i = 0; i < n; i++) {
+			var v = Math.random() < 0.16 ? (Math.random() * 2 - 1) * (Math.random() < 0.05 ? 1 : 0.3) : 0;
+			lp = lp * 0.7 + v * 0.3; // passe-haut grossier : on garde le grésillement
+			var s = Math.max(-1, Math.min(1, (v - lp) * 0.9));
+			pcm[i] = s * 32767;
+		}
+		var buf = new ArrayBuffer(44 + n * 2);
+		var dv = new DataView(buf);
+		var str = function (off, txt) {
+			for (var j = 0; j < txt.length; j++) dv.setUint8(off + j, txt.charCodeAt(j));
+		};
+		str(0, 'RIFF');
+		dv.setUint32(4, 36 + n * 2, true);
+		str(8, 'WAVE');
+		str(12, 'fmt ');
+		dv.setUint32(16, 16, true);
+		dv.setUint16(20, 1, true);  // PCM
+		dv.setUint16(22, 1, true);  // mono
+		dv.setUint32(24, sr, true);
+		dv.setUint32(28, sr * 2, true);
+		dv.setUint16(32, 2, true);
+		dv.setUint16(34, 16, true);
+		str(36, 'data');
+		dv.setUint32(40, n * 2, true);
+		new Int16Array(buf, 44).set(pcm);
+		crackleWavUrl.url = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+		return crackleWavUrl.url;
+	}
+
+	var crackleEl = null;
+	var crackleWanted = false;
 
 	function startCrackle() {
-		if (crackle || !soundOn()) return;
-		var c = ac();
-		if (!c || c.state !== 'running') return; // bloqué tant que pas de geste
-		var n = Math.floor(c.sampleRate * 1.5);
-		var buf = c.createBuffer(1, n, c.sampleRate);
-		var d = buf.getChannelData(0);
-		for (var i = 0; i < n; i++) {
-			d[i] = Math.random() < 0.18 ? (Math.random() * 2 - 1) * (Math.random() < 0.04 ? 1 : 0.3) : 0;
+		if (!soundOn()) return;
+		crackleWanted = true;
+		if (!crackleEl) {
+			crackleEl = new Audio(crackleWavUrl());
+			crackleEl.loop = true;
 		}
-		var s = c.createBufferSource();
-		s.buffer = buf;
-		s.loop = true;
-		var f = c.createBiquadFilter();
-		f.type = 'bandpass';
-		f.frequency.value = 1800;
-		f.Q.value = 0.8;
-		var g = c.createGain();
-		g.gain.value = Math.min(0.9, 0.07 * MASTER);
-		s.connect(f);
-		f.connect(g);
-		g.connect(c.destination);
-		s.start();
-		crackle = { s: s, g: g, c: c };
+		crackleEl.volume = Math.min(1, 0.12 * MASTER);
+		if (crackleEl.paused) {
+			var p = crackleEl.play();
+			if (p && p.catch) p.catch(function () { /* bloqué : retentera au prochain geste */ });
+		}
 	}
 
 	function stopCrackle() {
-		if (!crackle) return;
-		var cr = crackle;
-		crackle = null;
-		cr.g.gain.linearRampToValueAtTime(0.0001, cr.c.currentTime + 0.15);
-		setTimeout(function () { cr.s.stop(); }, 250);
+		crackleWanted = false;
+		if (crackleEl && !crackleEl.paused) crackleEl.pause();
 	}
 
 	function playModem() {
