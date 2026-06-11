@@ -108,48 +108,63 @@
 	}
 
 	/* ------------------------------- peinture de l'écran à 1200 bauds ----- */
-	/* Tous les textes de la page apparaissent caractère par caractère, de
-	 * haut en bas. Les caractères non révélés sont masqués par des espaces
-	 * insécables : même largeur en monospace, la mise en page ne bouge pas. */
+	/* Tous les textes de la page apparaissent caractère par caractère, en
+	 * balayage raster : ligne par ligne, du haut vers le bas de la page,
+	 * comme un Minitel qui reçoit sa page. Les caractères non révélés sont
+	 * masqués par des espaces insécables : même largeur en monospace, la
+	 * mise en page ne bouge pas. */
 
-	function paintScreen() {
+	function paintScreen(delayMs) {
 		var SKIP = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, TEXTAREA: 1, OPTION: 1, TITLE: 1, IFRAME: 1 };
-		var vh = window.innerHeight + 60;
 		var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
 		var nodes = [];
 		var total = 0;
 		var n;
 
-		// 1) Lecture seule : collecte des textes visibles à l'écran
+		// 1) Lecture seule : collecte des textes et de leur position (un seul reflow)
 		while ((n = walker.nextNode())) {
 			var p = n.parentElement;
 			if (!p || SKIP[p.tagName]) continue;
 			if (p.closest('[id^="d3615-"]')) continue;
 			if (!/\S/.test(n.data)) continue;
-			var r = p.getClientRects();
-			if (!r.length) continue;     // élément invisible
-			if (r[0].top > vh) continue; // sous la ligne de flottaison : affiché direct
-			nodes.push({ n: n, t: n.data });
+			var range = document.createRange();
+			range.selectNodeContents(n);
+			var r = range.getClientRects();
+			if (!r.length) continue; // élément invisible
+			nodes.push({ n: n, t: n.data, y: r[0].top + window.scrollY, x: r[0].left });
 			total += n.data.length;
-			if (total > 60000) break;    // garde-fou pour les pages monstrueuses
+			if (total > 60000) break; // garde-fou pour les pages monstrueuses
 		}
 		if (!nodes.length) return;
 
-		// 2) Écriture : on masque tout d'un coup
+		// 2) Tri en balayage raster : du haut vers le bas, puis de gauche à droite
+		nodes.sort(function (a, b) {
+			var ya = Math.round(a.y / 12);
+			var yb = Math.round(b.y / 12);
+			return (ya - yb) || (a.x - b.x);
+		});
+
+		// 3) Écriture : on masque tout d'un coup
 		nodes.forEach(function (o) {
 			o.m = o.t.replace(/\S/g, '\u00A0'); // insecable : pas de repli des blancs
 			o.n.data = o.m;
 		});
 
-		// 3) Balayage : ~1,6 s par écran quelle que soit sa densité
-		var budget = Math.min(500, Math.max(4, Math.round(total / 96)));
+		// 4) Balayage : ~1500 caractères/s, entre 4 et 9 s par page
+		var duration = Math.min(9, Math.max(4, total / 1500));
+		var budget = Math.max(1, Math.round(total / (duration * 60)));
 		var idx = 0;
 		var off = 0;
 		var caret = document.createElement('div');
 		caret.id = 'd3615-caret';
-		document.body.appendChild(caret);
 
-		(function sweep() {
+		// On laisse passer le flash d'allumage avant de commencer à écrire
+		setTimeout(function () {
+			document.body.appendChild(caret);
+			requestAnimationFrame(sweep);
+		}, delayMs || 0);
+
+		function sweep() {
 			var left = budget;
 			while (left > 0 && idx < nodes.length) {
 				var o = nodes[idx];
@@ -188,7 +203,7 @@
 				caret.style.display = 'none';
 			}
 			requestAnimationFrame(sweep);
-		})();
+		}
 	}
 
 	/* ------------------------------------------- compteur en francs ----- */
@@ -386,15 +401,17 @@
 			head.id = 'd3615-loginhead';
 			head.textContent = '3615 DOLI';
 			document.body.insertBefore(head, document.body.firstChild);
-			paintScreen();
+			paintScreen(150);
 			setupLogin();
 			return;
 		}
 
-		paintScreen();
+		if (!TOP) { // iframes et popups : peinture et CSS suffisent
+			paintScreen(100);
+			return;
+		}
 
-		if (!TOP) return; // iframes et popups : peinture et CSS suffisent
-
+		paintScreen(650); // on commence à écrire quand le flash d'allumage s'efface
 		bootFlash();
 		buildBar();
 		startCost();
