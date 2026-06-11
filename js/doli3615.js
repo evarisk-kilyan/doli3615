@@ -108,14 +108,19 @@
 	}
 
 	/* ------------------------------- peinture de l'écran à 1200 bauds ----- */
-	/* Tous les textes de la page apparaissent caractère par caractère, en
-	 * balayage raster : ligne par ligne, du haut vers le bas de la page,
-	 * comme un Minitel qui reçoit sa page. Les caractères non révélés sont
-	 * masqués par des espaces insécables : même largeur en monospace, la
-	 * mise en page ne bouge pas. */
+	/* Les textes visibles à l'écran apparaissent caractère par caractère, en
+	 * balayage raster : ligne par ligne, du haut vers le bas, comme un Minitel
+	 * qui reçoit sa page. La vitesse d'écriture est constante quelle que soit
+	 * la page ; ce qui est sous la ligne de flottaison est affiché direct (on
+	 * ne le voit pas pendant l'animation, et c'est déjà peint quand on y
+	 * descend), donc une page interminable ne bloque jamais plus qu'un écran.
+	 * Les caractères non révélés sont masqués par des espaces insécables :
+	 * même largeur en monospace, la mise en page ne bouge pas. */
 
 	function paintScreen(delayMs) {
+		var CPS = 1500; // caractères écrits par seconde, constant
 		var SKIP = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, TEXTAREA: 1, OPTION: 1, TITLE: 1, IFRAME: 1 };
+		var vh = window.innerHeight;
 		var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
 		var nodes = [];
 		var total = 0;
@@ -131,7 +136,8 @@
 			range.selectNodeContents(n);
 			var r = range.getClientRects();
 			if (!r.length) continue; // élément invisible
-			nodes.push({ n: n, t: n.data, y: r[0].top + window.scrollY, x: r[0].left });
+			if (r[0].top < -80 || r[0].top > vh + 80) continue; // hors écran : affiché direct
+			nodes.push({ n: n, t: n.data, y: r[0].top, x: r[0].left });
 			total += n.data.length;
 			if (total > 60000) break; // garde-fou pour les pages monstrueuses
 		}
@@ -150,9 +156,8 @@
 			o.n.data = o.m;
 		});
 
-		// 4) Balayage : ~1500 caractères/s, entre 4 et 9 s par page
-		var duration = Math.min(9, Math.max(4, total / 1500));
-		var budget = Math.max(1, Math.round(total / (duration * 60)));
+		// 4) Balayage : vitesse constante, peu importe la densité de la page
+		var budget = Math.max(1, Math.round(CPS / 60));
 		var idx = 0;
 		var off = 0;
 		var caret = document.createElement('div');
