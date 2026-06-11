@@ -1,0 +1,331 @@
+/* 3615 DOLI — Minitel pour Dolibarr.
+ * Modem synthétisé au WebAudio (il compose vraiment le 36 15 en DTMF),
+ * texte au caractère par caractère, touches Minitel, tarification en francs.
+ */
+(function () {
+	'use strict';
+
+	var src = (document.currentScript && document.currentScript.src) || '';
+	var ROOT = src.indexOf('/custom/') !== -1
+		? src.split('/custom/')[0]
+		: src.replace(/\/doli3615\/js\/doli3615\.js.*$/, '');
+
+	var TOP = (window.self === window.top);
+	var MODEM_MS = 6400;
+
+	/* ------------------------------------------------------ audio ----- */
+
+	var actx = null;
+
+	function ac() {
+		if (!actx) {
+			var AC = window.AudioContext || window.webkitAudioContext;
+			if (!AC) return null;
+			actx = new AC();
+		}
+		if (actx.state === 'suspended') actx.resume();
+		return actx;
+	}
+
+	function tone(freqs, t0, dur, vol, type) {
+		var c = ac();
+		if (!c) return;
+		var g = c.createGain();
+		var start = c.currentTime + t0;
+		g.gain.setValueAtTime(0.0001, start);
+		g.gain.linearRampToValueAtTime(vol, start + 0.01);
+		g.gain.setValueAtTime(vol, start + Math.max(0.011, dur - 0.02));
+		g.gain.linearRampToValueAtTime(0.0001, start + dur);
+		g.connect(c.destination);
+		freqs.forEach(function (f) {
+			var o = c.createOscillator();
+			o.type = type || 'sine';
+			o.frequency.value = f;
+			o.connect(g);
+			o.start(start);
+			o.stop(start + dur);
+		});
+	}
+
+	function hiss(t0, dur, vol) {
+		var c = ac();
+		if (!c) return;
+		var n = Math.floor(c.sampleRate * dur);
+		var buf = c.createBuffer(1, n, c.sampleRate);
+		var d = buf.getChannelData(0);
+		for (var i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+		var s = c.createBufferSource();
+		s.buffer = buf;
+		var g = c.createGain();
+		g.gain.setValueAtTime(vol, c.currentTime + t0);
+		g.gain.linearRampToValueAtTime(0.0001, c.currentTime + t0 + dur);
+		s.connect(g);
+		g.connect(c.destination);
+		s.start(c.currentTime + t0);
+	}
+
+	function soundOn() {
+		return localStorage.getItem('d3615_mute') !== '1';
+	}
+
+	function keyBeep() {
+		if (soundOn()) tone([1100], 0, 0.025, 0.025, 'square');
+	}
+
+	function playModem() {
+		if (!soundOn()) return;
+		// Décroché, tonalité France Télécom
+		tone([440], 0.2, 0.9, 0.08);
+		// Composition du 36 15 en DTMF
+		var dtmf = { 3: [697, 1477], 6: [770, 1336], 1: [697, 1209], 5: [770, 1336] };
+		[3, 6, 1, 5].forEach(function (k, i) {
+			tone(dtmf[k], 1.35 + i * 0.22, 0.14, 0.1);
+		});
+		// Sonnerie
+		tone([440], 2.5, 0.8, 0.05);
+		// Tonalité de réponse du serveur
+		tone([2100], 3.6, 0.6, 0.07);
+		// Négociation porteuse V.23
+		for (var i = 0; i < 4; i++) {
+			tone([i % 2 ? 2100 : 1300], 4.3 + i * 0.17, 0.15, 0.05, 'square');
+		}
+		// Souffle de négociation
+		hiss(4.95, 1.2, 0.05);
+	}
+
+	/* ------------------------------------------------- typewriter ----- */
+
+	function typeText(el, text, speed, done) {
+		var i = 0;
+		(function step() {
+			if (i <= text.length) {
+				el.textContent = text.slice(0, i++);
+				setTimeout(step, speed);
+			} else if (done) {
+				done();
+			}
+		})();
+	}
+
+	function typeTitles() {
+		var el = document.querySelector('.titre');
+		if (!el) return;
+		var txt = el.textContent.replace(/\s+/g, ' ').trim();
+		if (!txt || txt.length > 90) return;
+		el.textContent = '';
+		typeText(el, txt, 18);
+	}
+
+	/* ------------------------------------------- compteur en francs ----- */
+
+	function elapsedSec() {
+		var t0 = parseInt(sessionStorage.getItem('d3615_t0') || '0', 10);
+		return t0 ? Math.max(0, Math.floor((Date.now() - t0) / 1000)) : 0;
+	}
+
+	function costString() {
+		return (elapsedSec() / 60 * 1.29).toFixed(2).replace('.', ',') + ' F';
+	}
+
+	function startCost() {
+		if (!sessionStorage.getItem('d3615_t0')) {
+			sessionStorage.setItem('d3615_t0', String(Date.now()));
+		}
+		var el = document.getElementById('d3615-cost');
+		if (!el) return;
+		function tick() {
+			var s = elapsedSec();
+			var mm = String(Math.floor(s / 60)).padStart(2, '0');
+			var ss = String(s % 60).padStart(2, '0');
+			el.textContent = 'DUREE ' + mm + ':' + ss + ' — COUT ' + costString();
+		}
+		tick();
+		setInterval(tick, 1000);
+	}
+
+	/* --------------------------------------- barre de touches Minitel ----- */
+
+	function buildBar() {
+		var bar = document.createElement('div');
+		bar.id = 'd3615-bar';
+		bar.innerHTML =
+			'<span class="d3615-key d3615-blink">3615 DOLI</span>' +
+			'<span class="d3615-keys">' +
+			'<span class="d3615-key"><b>S</b>SOMMAIRE</span>' +
+			'<span class="d3615-key"><b>R</b>RETOUR</span>' +
+			'<span class="d3615-key"><b>U</b>SUITE</span>' +
+			'<span class="d3615-key"><b>G</b>GUIDE</span>' +
+			'<span class="d3615-key"><b>F</b>FIN</span>' +
+			'</span>' +
+			'<span id="d3615-cost"></span>';
+		document.body.appendChild(bar);
+	}
+
+	/* ------------------------------------------------------ guide ----- */
+
+	function guideText() {
+		var rows = [
+			['S', 'SOMMAIRE', "RETOUR A L'ACCUEIL"],
+			['R', 'RETOUR', 'PAGE PRECEDENTE'],
+			['U', 'SUITE', 'PAGE SUIVANTE'],
+			['G', 'GUIDE', 'AFFICHER / MASQUER CE GUIDE'],
+			['F', 'FIN', 'DECONNEXION'],
+			['B', 'BIP', 'SON DU CLAVIER ON/OFF'],
+			['M', 'MINITEL INTEGRAL', 'MASQUER LA SOURIS']
+		];
+		var W = 52;
+		var line = '+' + '-'.repeat(W) + '+';
+		function row(s) { return '| ' + s.padEnd(W - 2) + ' |'; }
+		function center(s) {
+			var pad = W - s.length;
+			var l = Math.floor(pad / 2);
+			return '|' + ' '.repeat(l) + s + ' '.repeat(pad - l) + '|';
+		}
+		var out = [line, center("3615 DOLI - GUIDE D'UTILISATION"), line];
+		rows.forEach(function (r) {
+			out.push(row(' ' + r[0] + '  ' + r[1].padEnd(18) + ' ' + r[2]));
+		});
+		out.push(row(''));
+		out.push(row(' TOUCHES ACTIVES HORS CHAMP DE SAISIE'));
+		out.push(row(' ECHAP POUR FERMER'));
+		out.push(line);
+		out.push(center('TARIF : 1,29 F/MIN FACTURE A VOTRE PATRON'));
+		out.push(line);
+		return out.join('\n');
+	}
+
+	function toggleGuide(forceOff) {
+		var g = document.getElementById('d3615-guide');
+		if (!g) {
+			if (forceOff) return;
+			g = document.createElement('div');
+			g.id = 'd3615-guide';
+			var pre = document.createElement('pre');
+			pre.textContent = guideText();
+			g.appendChild(pre);
+			g.addEventListener('click', function () { g.classList.remove('d3615-on'); });
+			document.body.appendChild(g);
+		}
+		if (forceOff) g.classList.remove('d3615-on');
+		else g.classList.toggle('d3615-on');
+	}
+
+	/* -------------------------------------------------------- FIN ----- */
+
+	function doFin() {
+		tone([1300], 0, 0.25, 0.07);
+		tone([440], 0.35, 0.6, 0.07);
+		var ov = document.createElement('div');
+		ov.id = 'd3615-modem';
+		ov.innerHTML = '<div class="d3615-title">3615 DOLI</div><pre></pre>';
+		document.body.appendChild(ov);
+		ov.querySelector('pre').textContent =
+			'DECONNEXION . . .\nMERCI DE VOTRE VISITE\nCOUT DE LA SESSION : ' + costString();
+		var a = document.querySelector('a[href*="logout.php"]');
+		var url = a ? a.href : ROOT + '/user/logout.php';
+		setTimeout(function () { window.location.href = url; }, 1400);
+	}
+
+	/* ---------------------------------------------------- clavier ----- */
+
+	function onKey(e) {
+		var t = e.target;
+		var typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA'
+			|| t.tagName === 'SELECT' || t.isContentEditable);
+
+		if (e.key === 'Escape') toggleGuide(true);
+
+		if (typing) {
+			// Le clavier du Minitel fait bip
+			if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key && e.key.length === 1) keyBeep();
+			return;
+		}
+		if (e.ctrlKey || e.altKey || e.metaKey) return;
+
+		switch ((e.key || '').toLowerCase()) {
+			case 's': keyBeep(); window.location.href = ROOT + '/index.php?mainmenu=home'; break;
+			case 'r': keyBeep(); history.back(); break;
+			case 'u': keyBeep(); history.forward(); break;
+			case 'g': keyBeep(); toggleGuide(); break;
+			case 'f': keyBeep(); doFin(); break;
+			case 'b': localStorage.setItem('d3615_mute', soundOn() ? '1' : '0'); keyBeep(); break;
+			case 'm': document.documentElement.classList.toggle('d3615-nomouse'); keyBeep(); break;
+		}
+	}
+
+	/* ------------------------------------------- allumage du tube ----- */
+
+	function bootFlash() {
+		var b = document.createElement('div');
+		b.id = 'd3615-boot';
+		document.body.appendChild(b);
+		setTimeout(function () { b.remove(); }, 750);
+	}
+
+	/* ------------------------------------------------------ login ----- */
+
+	var MODEM_LINES = [
+		[200, 'CONNEXION AU SERVICE TELEMATIQUE'],
+		[1250, 'COMPOSITION DU 36 15 . . .'],
+		[2450, 'APPEL EN COURS'],
+		[3500, 'NEGOCIATION PORTEUSE  1200/75 BAUDS'],
+		[5000, 'CONNEXION ETABLIE'],
+		[5400, 'TARIF : 1,29 F/MIN'],
+		[5750, 'BIENVENUE SUR 3615 DOLI']
+	];
+
+	function setupLogin() {
+		var form = document.getElementById('login') || document.querySelector('form[name="login"]');
+		if (!form) return;
+		form.addEventListener('submit', function (e) {
+			if (form.dataset.d3615) return;
+			e.preventDefault();
+			form.dataset.d3615 = '1';
+			playModem();
+			var ov = document.createElement('div');
+			ov.id = 'd3615-modem';
+			ov.innerHTML = '<div class="d3615-title">3615 DOLI</div><pre></pre>';
+			document.body.appendChild(ov);
+			var pre = ov.querySelector('pre');
+			MODEM_LINES.forEach(function (l) {
+				setTimeout(function () {
+					var div = document.createElement('div');
+					pre.appendChild(div);
+					typeText(div, l[1], 14);
+				}, l[0]);
+			});
+			setTimeout(function () { form.submit(); }, MODEM_MS);
+		});
+	}
+
+	/* ------------------------------------------------------- init ----- */
+
+	function init() {
+		if (!document.body) return;
+
+		document.addEventListener('keydown', onKey);
+
+		if (document.body.classList.contains('bodylogin')) {
+			sessionStorage.removeItem('d3615_t0');
+			var head = document.createElement('div');
+			head.id = 'd3615-loginhead';
+			head.textContent = '3615 DOLI';
+			document.body.insertBefore(head, document.body.firstChild);
+			setupLogin();
+			return;
+		}
+
+		if (!TOP) return; // iframes et popups : le CSS suffit
+
+		bootFlash();
+		buildBar();
+		startCost();
+		typeTitles();
+	}
+
+	if (document.readyState === 'loading') {
+		document.addEventListener('DOMContentLoaded', init);
+	} else {
+		init();
+	}
+})();
