@@ -262,6 +262,26 @@ body::after {
 	animation: d3615-blink 1.06s steps(2, start) infinite;
 }
 
+/* ====== Toast (feedback des touches, ex. SON COUPE) ====== */
+#d3615-toast {
+	position: fixed;
+	left: 50%;
+	bottom: 48px;
+	transform: translateX(-50%);
+	display: none;
+	z-index: 2147483300;
+	padding: 4px 14px;
+	background-color: #33ff33 !important;
+	color: #000 !important;
+	text-shadow: none !important;
+	font-size: 20px !important;
+	letter-spacing: 2px;
+}
+
+#d3615-toast.d3615-on {
+	display: block;
+}
+
 /* ====== Curseur de balayage (peinture de l'écran à 1200 bauds) ====== */
 #d3615-caret {
 	position: fixed;

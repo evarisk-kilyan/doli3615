@@ -69,28 +69,80 @@
 	}
 
 	function keyBeep() {
-		if (soundOn()) tone([1100], 0, 0.025, 0.025, 'square');
+		if (soundOn()) tone([1100], 0, 0.04, 0.08, 'square');
+	}
+
+	// Les navigateurs ne laissent sonner l'audio qu'après un geste de
+	// l'utilisateur : on déverrouille le contexte au premier clic / touche.
+	function unlock() {
+		var c = ac();
+		if (c && c.state === 'suspended') c.resume();
+	}
+	document.addEventListener('pointerdown', unlock, true);
+	document.addEventListener('keydown', unlock, true);
+
+	// Crachotis de réception de données pendant la peinture de l'écran
+	var crackle = null;
+
+	function startCrackle() {
+		if (crackle || !soundOn()) return;
+		var c = ac();
+		if (!c || c.state !== 'running') return; // bloqué tant que pas de geste
+		var n = Math.floor(c.sampleRate * 1.5);
+		var buf = c.createBuffer(1, n, c.sampleRate);
+		var d = buf.getChannelData(0);
+		for (var i = 0; i < n; i++) {
+			d[i] = Math.random() < 0.18 ? (Math.random() * 2 - 1) * (Math.random() < 0.04 ? 1 : 0.3) : 0;
+		}
+		var s = c.createBufferSource();
+		s.buffer = buf;
+		s.loop = true;
+		var f = c.createBiquadFilter();
+		f.type = 'bandpass';
+		f.frequency.value = 1800;
+		f.Q.value = 0.8;
+		var g = c.createGain();
+		g.gain.value = 0.07;
+		s.connect(f);
+		f.connect(g);
+		g.connect(c.destination);
+		s.start();
+		crackle = { s: s, g: g, c: c };
+	}
+
+	function stopCrackle() {
+		if (!crackle) return;
+		var cr = crackle;
+		crackle = null;
+		cr.g.gain.linearRampToValueAtTime(0.0001, cr.c.currentTime + 0.15);
+		setTimeout(function () { cr.s.stop(); }, 250);
 	}
 
 	function playModem() {
 		if (!soundOn()) return;
-		// Décroché, tonalité France Télécom
-		tone([440], 0.2, 0.9, 0.08);
-		// Composition du 36 15 en DTMF
-		var dtmf = { 3: [697, 1477], 6: [770, 1336], 1: [697, 1209], 5: [770, 1336] };
-		[3, 6, 1, 5].forEach(function (k, i) {
-			tone(dtmf[k], 1.35 + i * 0.22, 0.14, 0.1);
-		});
-		// Sonnerie
-		tone([440], 2.5, 0.8, 0.05);
-		// Tonalité de réponse du serveur
-		tone([2100], 3.6, 0.6, 0.07);
-		// Négociation porteuse V.23
-		for (var i = 0; i < 4; i++) {
-			tone([i % 2 ? 2100 : 1300], 4.3 + i * 0.17, 0.15, 0.05, 'square');
-		}
-		// Souffle de négociation
-		hiss(4.95, 1.2, 0.05);
+		var c = ac();
+		if (!c) return;
+		var go = function () {
+			// Décroché, tonalité France Télécom
+			tone([440], 0.2, 0.9, 0.15);
+			// Composition du 36 15 en DTMF
+			var dtmf = { 3: [697, 1477], 6: [770, 1336], 1: [697, 1209], 5: [770, 1336] };
+			[3, 6, 1, 5].forEach(function (k, i) {
+				tone(dtmf[k], 1.35 + i * 0.22, 0.14, 0.2);
+			});
+			// Sonnerie
+			tone([440], 2.5, 0.8, 0.1);
+			// Tonalité de réponse du serveur
+			tone([2100], 3.6, 0.6, 0.14);
+			// Négociation porteuse V.23
+			for (var i = 0; i < 4; i++) {
+				tone([i % 2 ? 2100 : 1300], 4.3 + i * 0.17, 0.15, 0.1, 'square');
+			}
+			// Souffle de négociation
+			hiss(4.95, 1.2, 0.09);
+		};
+		if (c.state === 'suspended') c.resume().then(go, function () {});
+		else go();
 	}
 
 	/* ------------------------------------------------- typewriter ----- */
@@ -170,6 +222,7 @@
 		}, delayMs || 0);
 
 		function sweep() {
+			startCrackle(); // démarre (ou rejoint) dès que l'audio est autorisé
 			var left = budget;
 			while (left > 0 && idx < nodes.length) {
 				var o = nodes[idx];
@@ -185,6 +238,7 @@
 				}
 			}
 			if (idx >= nodes.length) {
+				stopCrackle();
 				caret.remove();
 				return;
 			}
@@ -308,8 +362,8 @@
 	/* -------------------------------------------------------- FIN ----- */
 
 	function doFin() {
-		tone([1300], 0, 0.25, 0.07);
-		tone([440], 0.35, 0.6, 0.07);
+		tone([1300], 0, 0.25, 0.12);
+		tone([440], 0.35, 0.6, 0.12);
 		var ov = document.createElement('div');
 		ov.id = 'd3615-modem';
 		ov.innerHTML = '<div class="d3615-title">3615 DOLI</div><pre></pre>';
@@ -343,9 +397,30 @@
 			case 'u': keyBeep(); history.forward(); break;
 			case 'g': keyBeep(); toggleGuide(); break;
 			case 'f': keyBeep(); doFin(); break;
-			case 'b': localStorage.setItem('d3615_mute', soundOn() ? '1' : '0'); keyBeep(); break;
+			case 'b': {
+				var wasOn = soundOn();
+				localStorage.setItem('d3615_mute', wasOn ? '1' : '0');
+				toast(wasOn ? 'SON COUPE' : 'SON RETABLI');
+				if (!wasOn) keyBeep();
+				break;
+			}
 			case 'm': document.documentElement.classList.toggle('d3615-nomouse'); keyBeep(); break;
 		}
+	}
+
+	/* ------------------------------------------------------ toast ----- */
+
+	function toast(msg) {
+		var t = document.getElementById('d3615-toast');
+		if (!t) {
+			t = document.createElement('div');
+			t.id = 'd3615-toast';
+			document.body.appendChild(t);
+		}
+		t.textContent = msg;
+		t.classList.add('d3615-on');
+		clearTimeout(toast.tm);
+		toast.tm = setTimeout(function () { t.classList.remove('d3615-on'); }, 1400);
 	}
 
 	/* ------------------------------------------- allumage du tube ----- */
