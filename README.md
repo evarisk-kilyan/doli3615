@@ -19,6 +19,10 @@ Zéro utilité. 100% ambiance. Né pendant un devcamp.
 
 - 🖥️ **Écran cathodique** : fond noir, texte vert phosphore (police VT323), scanlines,
   vignettage, scintillement du tube, allumage CRT à chaque page.
+- 🖨️ **Affichage à 1200 bauds** : à chaque page, **tous les textes** se peignent
+  caractère par caractère, de haut en bas, avec le curseur de balayage — comme sur
+  un vrai Minitel qui reçoit sa page. Sans saut de mise en page (les caractères
+  non révélés sont masqués par des insécables, même largeur en monospace).
 - 📞 **Modem au login** : à la connexion, le module **compose réellement le 36 15 en DTMF**
   (synthétisé au WebAudio : tonalité France Télécom, sonnerie, tonalité de réponse 2100 Hz,
   porteuse V.23, souffle de négociation) pendant que l'écran tape la séquence de connexion

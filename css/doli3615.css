@@ -262,6 +262,16 @@ body::after {
 	animation: d3615-blink 1.06s steps(2, start) infinite;
 }
 
+/* ====== Curseur de balayage (peinture de l'écran à 1200 bauds) ====== */
+#d3615-caret {
+	position: fixed;
+	display: none;
+	z-index: 2147482500;
+	pointer-events: none;
+	background-color: #33ff33 !important;
+	box-shadow: 0 0 8px 2px rgba(51, 255, 51, .7) !important;
+}
+
 /* ====== Mode Minitel intégral (touche M) : plus de souris ====== */
 html.d3615-nomouse,
 html.d3615-nomouse * {

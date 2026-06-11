@@ -107,13 +107,88 @@
 		})();
 	}
 
-	function typeTitles() {
-		var el = document.querySelector('.titre');
-		if (!el) return;
-		var txt = el.textContent.replace(/\s+/g, ' ').trim();
-		if (!txt || txt.length > 90) return;
-		el.textContent = '';
-		typeText(el, txt, 18);
+	/* ------------------------------- peinture de l'écran à 1200 bauds ----- */
+	/* Tous les textes de la page apparaissent caractère par caractère, de
+	 * haut en bas. Les caractères non révélés sont masqués par des espaces
+	 * insécables : même largeur en monospace, la mise en page ne bouge pas. */
+
+	function paintScreen() {
+		var SKIP = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, TEXTAREA: 1, OPTION: 1, TITLE: 1, IFRAME: 1 };
+		var vh = window.innerHeight + 60;
+		var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+		var nodes = [];
+		var total = 0;
+		var n;
+
+		// 1) Lecture seule : collecte des textes visibles à l'écran
+		while ((n = walker.nextNode())) {
+			var p = n.parentElement;
+			if (!p || SKIP[p.tagName]) continue;
+			if (p.closest('[id^="d3615-"]')) continue;
+			if (!/\S/.test(n.data)) continue;
+			var r = p.getClientRects();
+			if (!r.length) continue;     // élément invisible
+			if (r[0].top > vh) continue; // sous la ligne de flottaison : affiché direct
+			nodes.push({ n: n, t: n.data });
+			total += n.data.length;
+			if (total > 60000) break;    // garde-fou pour les pages monstrueuses
+		}
+		if (!nodes.length) return;
+
+		// 2) Écriture : on masque tout d'un coup
+		nodes.forEach(function (o) {
+			o.m = o.t.replace(/\S/g, '\u00A0'); // insecable : pas de repli des blancs
+			o.n.data = o.m;
+		});
+
+		// 3) Balayage : ~1,6 s par écran quelle que soit sa densité
+		var budget = Math.min(500, Math.max(4, Math.round(total / 96)));
+		var idx = 0;
+		var off = 0;
+		var caret = document.createElement('div');
+		caret.id = 'd3615-caret';
+		document.body.appendChild(caret);
+
+		(function sweep() {
+			var left = budget;
+			while (left > 0 && idx < nodes.length) {
+				var o = nodes[idx];
+				var take = Math.min(left, o.t.length - off);
+				off += take;
+				left -= take;
+				if (off >= o.t.length) {
+					o.n.data = o.t;
+					idx++;
+					off = 0;
+				} else {
+					o.n.data = o.t.slice(0, off) + o.m.slice(off);
+				}
+			}
+			if (idx >= nodes.length) {
+				caret.remove();
+				return;
+			}
+			// Curseur de balayage sur le caractère en cours
+			try {
+				var cur = nodes[idx];
+				var range = document.createRange();
+				range.setStart(cur.n, Math.min(off, cur.n.data.length));
+				range.setEnd(cur.n, Math.min(off + 1, cur.n.data.length));
+				var rc = range.getBoundingClientRect();
+				if (rc && rc.height) {
+					caret.style.display = 'block';
+					caret.style.left = rc.left + 'px';
+					caret.style.top = rc.top + 'px';
+					caret.style.width = Math.max(7, rc.width) + 'px';
+					caret.style.height = rc.height + 'px';
+				} else {
+					caret.style.display = 'none';
+				}
+			} catch (e) {
+				caret.style.display = 'none';
+			}
+			requestAnimationFrame(sweep);
+		})();
 	}
 
 	/* ------------------------------------------- compteur en francs ----- */
@@ -311,16 +386,18 @@
 			head.id = 'd3615-loginhead';
 			head.textContent = '3615 DOLI';
 			document.body.insertBefore(head, document.body.firstChild);
+			paintScreen();
 			setupLogin();
 			return;
 		}
 
-		if (!TOP) return; // iframes et popups : le CSS suffit
+		paintScreen();
+
+		if (!TOP) return; // iframes et popups : peinture et CSS suffisent
 
 		bootFlash();
 		buildBar();
 		startCost();
-		typeTitles();
 	}
 
 	if (document.readyState === 'loading') {
