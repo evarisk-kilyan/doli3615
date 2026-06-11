@@ -118,7 +118,7 @@
 	 * même largeur en monospace, la mise en page ne bouge pas. */
 
 	function paintScreen(delayMs) {
-		var CPS = 1500; // caractères écrits par seconde, constant
+		var CPS = 300; // caractères écrits par seconde, constant
 		var SKIP = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, TEXTAREA: 1, OPTION: 1, TITLE: 1, IFRAME: 1 };
 		var vh = window.innerHeight;
 		var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);

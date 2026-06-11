@@ -22,7 +22,7 @@ Zéro utilité. 100% ambiance. Né pendant un devcamp.
 - 🖨️ **Affichage à 1200 bauds** : à chaque page, les textes se peignent caractère
   par caractère en balayage raster — ligne par ligne, du haut vers le bas, curseur
   de balayage compris — comme sur un vrai Minitel qui reçoit sa page. Vitesse
-  d'écriture **constante** (~1500 caractères/s) quelle que soit la page : seul
+  d'écriture **constante** (~300 caractères/s) quelle que soit la page : seul
   l'écran visible est balayé, le reste est déjà peint quand on y descend, donc une
   page interminable ne met jamais plus de quelques secondes à s'afficher. Sans saut
   de mise en page (les caractères non révélés sont masqués par des insécables,
